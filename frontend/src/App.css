@@ -1,3 +1,6 @@
+
+Copy
+
 .counter {
   font-size: 16px;
   padding: 5px 10px;
@@ -245,6 +248,7 @@ header h1 {
 }
  
 .upload-icon-wrap {
+  margin: 0 auto;
   width: 52px;
   height: 52px;
   border-radius: 14px;
@@ -499,3 +503,4 @@ tr:hover td {
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
+ 

@@ -12,7 +12,9 @@ const port = 3001;
 // Configure multer for file uploads
 const upload = multer({ dest: 'uploads/' });
 
-app.use(cors());
+app.use(cors({
+  origin: 'https://natural-query-beige.vercel.app'
+}));
 app.use(express.json());
 
 // Ensure uploads directory exists
