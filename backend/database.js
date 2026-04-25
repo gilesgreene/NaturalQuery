@@ -1,117 +1,132 @@
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import fs from 'fs';
+import csv from 'csv-parser';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-let dbInstance = null;
-
-export async function getDb() {
-    if (dbInstance) return dbInstance;
-    
-    // Open SQLite database (file-based or memory, we'll use a local file for persistence)
-    dbInstance = await open({
-        filename: join(__dirname, 'database.sqlite'),
-        driver: sqlite3.cached.Database
+// Helper to open the database connection
+export async function openDb() {
+    return open({
+        filename: './database.sqlite',
+        driver: sqlite3.Database
     });
-    
-    return dbInstance;
 }
 
-export async function initializeDatabase() {
-    const db = await getDb();
-    
-    // Create E-commerce schema
+// Function to initialize the database with some tables and data
+export async function initDb() {
+    const db = await openDb();
+
+    // Create sample tables for testing
     await db.exec(`
-        CREATE TABLE IF NOT EXISTS customers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            signup_date DATE NOT NULL
-        );
+    CREATE TABLE IF NOT EXISTS products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      category TEXT,
+      price REAL,
+      stock_quantity INTEGER
+    );
 
-        CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            category TEXT NOT NULL,
-            price DECIMAL(10, 2) NOT NULL,
-            stock INTEGER NOT NULL
-        );
+    CREATE TABLE IF NOT EXISTS sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER,
+      sale_date DATE,
+      amount REAL,
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    );
+  `);
 
-        CREATE TABLE IF NOT EXISTS orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            customer_id INTEGER NOT NULL,
-            order_date DATE NOT NULL,
-            status TEXT NOT NULL,
-            total DECIMAL(10, 2) NOT NULL,
-            FOREIGN KEY (customer_id) REFERENCES customers(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS order_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id INTEGER NOT NULL,
-            product_id INTEGER NOT NULL,
-            quantity INTEGER NOT NULL,
-            price_at_time DECIMAL(10, 2) NOT NULL,
-            FOREIGN KEY (order_id) REFERENCES orders(id),
-            FOREIGN KEY (product_id) REFERENCES products(id)
-        );
-    `);
-
-    // Check if we need to seed the data
-    const count = await db.get("SELECT COUNT(*) as count FROM customers");
-    if (count.count === 0) {
-        console.log("Seeding initial database...");
+    // Optional: Check if products table is empty and seed it
+    const products = await db.all('SELECT * FROM products LIMIT 1');
+    if (products.length === 0) {
         await db.exec(`
-            INSERT INTO customers (name, email, signup_date) VALUES 
-            ('Alice Smith', 'alice@example.com', '2023-01-15'),
-            ('Bob Jones', 'bob@example.com', '2023-02-20'),
-            ('Charlie Brown', 'charlie@example.com', '2023-03-05');
-
-            INSERT INTO products (name, category, price, stock) VALUES
-            ('Laptop', 'Electronics', 1200.00, 50),
-            ('Smartphone', 'Electronics', 800.00, 100),
-            ('Desk Chair', 'Furniture', 150.00, 20),
-            ('Coffee Mug', 'Kitchen', 15.00, 200),
-            ('Headphones', 'Electronics', 200.00, 75);
-
-            INSERT INTO orders (customer_id, order_date, status, total) VALUES
-            (1, '2023-05-10', 'Delivered', 1215.00),
-            (2, '2023-05-12', 'Pending', 800.00),
-            (1, '2023-06-01', 'Delivered', 200.00),
-            (3, '2023-06-05', 'Cancelled', 150.00);
-
-            INSERT INTO order_items (order_id, product_id, quantity, price_at_time) VALUES
-            (1, 1, 1, 1200.00),
-            (1, 4, 1, 15.00),
-            (2, 2, 1, 800.00),
-            (3, 5, 1, 200.00),
-            (4, 3, 1, 150.00);
-        `);
-    } else {
-        console.log("Database already seeded. Skipping seed.");
+      INSERT INTO products (name, category, price, stock_quantity) VALUES 
+      ('Laptop', 'Electronics', 999.99, 50),
+      ('Desk Chair', 'Furniture', 150.00, 20),
+      ('Monitor', 'Electronics', 250.00, 30),
+      ('Coffee Maker', 'Appliances', 80.00, 15);
+      
+      INSERT INTO sales (product_id, sale_date, amount) VALUES 
+      (1, '2026-04-20', 999.99),
+      (3, '2026-04-21', 250.00);
+    `);
+        console.log("Database seeded with initial data.");
     }
 }
 
-export async function runQuery(sql) {
-    const db = await getDb();
-    // Use all() to return multiple rows for SELECT statements
-    return await db.all(sql);
+// Function to create a table from CSV file
+export async function createTableFromCSV(filePath, tableName) {
+    return new Promise((resolve, reject) => {
+        const db = openDb();
+        const rows = [];
+        let headers = [];
+
+        fs.createReadStream(filePath)
+            .pipe(csv())
+            .on('headers', (headerList) => {
+                headers = headerList;
+            })
+            .on('data', (row) => {
+                rows.push(row);
+            })
+            .on('end', async () => {
+                try {
+                    const dbInstance = await db;
+                    
+                    // Drop table if exists
+                    await dbInstance.exec(`DROP TABLE IF EXISTS ${tableName}`);
+                    
+                    // Create table with columns from headers
+                    const columns = headers.map(header => `${header} TEXT`).join(', ');
+                    await dbInstance.exec(`CREATE TABLE ${tableName} (${columns})`);
+                    
+                    // Insert data
+                    for (const row of rows) {
+                        const values = headers.map(header => row[header] || '').map(val => `'${val.replace(/'/g, "''")}'`).join(', ');
+                        await dbInstance.exec(`INSERT INTO ${tableName} (${headers.join(', ')}) VALUES (${values})`);
+                    }
+                    
+                    console.log(`Table ${tableName} created with ${rows.length} rows`);
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            })
+            .on('error', reject);
+    });
 }
 
-export async function getSchemaDescription() {
-    return \`
-Tables:
-1. customers (id, name, email, signup_date)
-2. products (id, name, category, price, stock)
-3. orders (id, customer_id, order_date, status, total)
-4. order_items (id, order_id, product_id, quantity, price_at_time)
+/**
+ * Gets the schema information to feed into the AI prompt.
+ */
+export async function getSchemaInfo() {
+    const db = await openDb();
+    const tables = await db.all("SELECT name FROM sqlite_master WHERE type='table'");
+    let schemaDescription = "";
 
-Relationships:
-- orders.customer_id -> customers.id
-- order_items.order_id -> orders.id
-- order_items.product_id -> products.id
-    \`;
+    for (const table of tables) {
+        if (table.name === 'sqlite_sequence') continue;
+        const columns = await db.all(`PRAGMA table_info(${table.name})`);
+        const colNames = columns.map(c => c.name).join(", ");
+        schemaDescription += `Table: ${table.name}, Columns: ${colNames}\n`;
+    }
+    return schemaDescription;
+}
+
+/**
+ * Runs a raw SQL string and returns the results as an array.
+ */
+export async function runQuery(sql) {
+    const db = await openDb();
+
+    // Clean the SQL string (strip potential AI-generated markdown)
+    const queryString = typeof sql === 'string'
+        ? sql.replace(/```sql/g, "").replace(/```/g, "").trim()
+        : sql;
+
+    try {
+        const results = await db.all(queryString);
+        return results;
+    } catch (error) {
+        console.error("Database Query Error:", error.message);
+        throw new Error(`SQL Error: ${error.message}`);
+    }
 }

@@ -1,50 +1,76 @@
 import express from 'express';
 import cors from 'cors';
-import { initializeDatabase, runQuery } from './database.js';
+import dotenv from 'dotenv';
+import multer from 'multer';
+import csv from 'csv-parser';
+import fs from 'fs';
 import { generateSQL } from './ai.js';
+import { runQuery, getSchemaInfo, initDb, createTableFromCSV } from './database.js';
+
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const port = 3001;
+
+// Configure multer for file uploads
+const upload = multer({ dest: 'uploads/' });
 
 app.use(cors());
 app.use(express.json());
 
+// Ensure uploads directory exists
+if (!fs.existsSync('uploads')) {
+    fs.mkdirSync('uploads');
+}
+
 // Initialize the database on startup
-initializeDatabase().catch(err => console.error("Failed to initialize database:", err));
+initDb().then(() => console.log("Database ready")).catch(console.error);
 
-app.post('/api/query', async (req, res) => {
+app.post('/upload', upload.single('file'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+    }
+
     try {
-        const { question } = req.body;
-        if (!question) {
-            return res.status(400).json({ error: "Missing 'question' in request body." });
-        }
-
-        // 1. Convert natural language to SQL
-        const { sql, explanation } = await generateSQL(question);
-        
-        // 2. Execute the generated SQL
-        let results = [];
-        let executionError = null;
-        try {
-            results = await runQuery(sql);
-        } catch (dbErr) {
-            executionError = dbErr.message;
-        }
-
-        // 3. Return the SQL, explanation, and results/error
-        res.json({
-            question,
-            sql,
-            explanation,
-            results,
-            error: executionError
-        });
+        const tableName = 'uploaded_data';
+        await createTableFromCSV(req.file.path, tableName);
+        res.json({ success: true, message: 'File uploaded and processed successfully' });
     } catch (error) {
-        console.error("API Error:", error);
-        res.status(500).json({ error: error.message || "Internal server error" });
+        console.error('Error processing file:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Backend server running on http://localhost:${PORT}`);
+app.post('/query', async (req, res) => {
+    const { query } = req.body;
+
+    if (!query) {
+        return res.status(400).json({ error: 'Query is required' });
+    }
+
+    try {
+        const schemaInfo = await getSchemaInfo();
+        const generatedSql = await generateSQL(query, schemaInfo);
+
+        console.log("AI Generated SQL:", generatedSql);
+
+        const results = await runQuery(generatedSql);
+
+        res.json({
+            success: true,
+            sql: generatedSql,
+            results: results
+        });
+
+    } catch (error) {
+        console.error('Error processing query:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
 });

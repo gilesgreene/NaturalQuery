@@ -5,6 +5,38 @@ function App() {
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFileUpload = async (e) => {
+    const selectedFile = e.target.files[0];
+    if (!selectedFile) return;
+
+    setFile(selectedFile);
+    setUploading(true);
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      const response = await fetch('http://localhost:3001/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      alert('File uploaded successfully! You can now query your data.');
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Failed to upload file. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -14,17 +46,27 @@ function App() {
     setResult(null);
 
     try {
-      const response = await fetch('/api/query', {
+      // 1. Point to port 3001 (where your Express server is listening)
+      // 2. Use '/query' instead of '/api/query'
+      const response = await fetch('http://localhost:3001/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question })
+        body: JSON.stringify({ query: question }) // Backend expects { query }
       });
 
+      if (!response.ok) {
+        throw new Error(`Server responded with status: ${response.status}`);
+      }
+
       const data = await response.json();
+
+      // Based on your server.js, the backend returns: 
+      // { results: [...], sql: "SELECT..." }
       setResult(data);
+
     } catch (error) {
       console.error("Error fetching query:", error);
-      setResult({ error: "Failed to connect to the backend server." });
+      setResult({ error: "Failed to connect to the backend server. Make sure it's running on port 3001." });
     } finally {
       setLoading(false);
     }
@@ -37,10 +79,21 @@ function App() {
         <p className="subtitle">Translate your intent into database insights.</p>
       </header>
 
+      <div className="upload-container">
+        <input
+          type="file"
+          accept=".csv"
+          onChange={handleFileUpload}
+          disabled={uploading}
+          style={{ marginBottom: '20px' }}
+        />
+        {uploading && <p>Uploading...</p>}
+      </div>
+
       <form onSubmit={handleSearch} className="search-container">
-        <input 
-          type="text" 
-          className="search-input" 
+        <input
+          type="text"
+          className="search-input"
           placeholder="e.g., Show me all users who signed up this year..."
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
