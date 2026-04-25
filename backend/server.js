@@ -1,13 +1,10 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import multer from 'multer';
 import csv from 'csv-parser';
 import fs from 'fs';
 import { generateSQL } from './ai.js';
 import { runQuery, getSchemaInfo, initDb, createTableFromCSV } from './database.js';
-
-dotenv.config();
 
 const app = express();
 const port = 3001;
