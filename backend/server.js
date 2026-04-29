@@ -62,10 +62,8 @@ app.post('/api/query', async (req, res) => {
     }
 });
 
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(port, () => {
-        console.log(`Server running at http://localhost:${port}`);
-    });
-}
+app.listen(port, () => {
+    console.log(`Server running at port ${port}`);
+});
 
 export default app;
