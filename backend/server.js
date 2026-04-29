@@ -1,18 +1,23 @@
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
+import fs from 'fs';
 import { generateSQL } from './ai.js';
 import { runQuery, getSchemaInfo, initDb, createTableFromCSV } from './database.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Configure multer for memory storage
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+// Configure multer for disk storage
+const upload = multer({ dest: 'uploads/' });
 
 app.use(cors());
 app.use(express.json());
+
+// Ensure uploads directory exists
+if (!fs.existsSync('uploads')) {
+    fs.mkdirSync('uploads');
+}
 
 // Initialize the database on startup
 initDb().then(() => console.log("Database ready")).catch(console.error);
@@ -24,7 +29,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
     try {
         const tableName = 'uploaded_data';
-        await createTableFromCSV(req.file.buffer, tableName);
+        await createTableFromCSV(req.file.path, tableName);
         res.json({ success: true, message: 'File uploaded and processed successfully' });
     } catch (error) {
         console.error('Error processing file:', error);

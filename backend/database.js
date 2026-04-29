@@ -2,6 +2,7 @@ import pkg from 'pg';
 const { Pool } = pkg;
 import csv from 'csv-parser';
 import { Readable } from 'stream';
+import fs from 'fs';
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -57,67 +58,91 @@ export async function initDb() {
     }
 }
 
-// Function to create a table from CSV file buffer
-export async function createTableFromCSV(buffer, tableName) {
-    return new Promise((resolve, reject) => {
-        const rows = [];
+// Function to create a table from CSV file on disk using streaming
+export async function createTableFromCSV(filePath, tableName) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query(`DROP TABLE IF EXISTS "${tableName}"`);
+        
+        let headersCreated = false;
         let headers = [];
-
-        Readable.from(buffer)
-            .pipe(csv())
-            .on('headers', (headerList) => {
-                headers = headerList;
-            })
-            .on('data', (row) => {
-                rows.push(row);
-            })
-            .on('end', async () => {
-                const client = await pool.connect();
+        let chunk = [];
+        
+        await new Promise((resolve, reject) => {
+            const stream = fs.createReadStream(filePath).pipe(csv());
+            
+            stream.on('headers', async (headerList) => {
                 try {
-                    await client.query('BEGIN');
-                    
-                    await client.query(`DROP TABLE IF EXISTS "${tableName}"`);
-                    
+                    headers = headerList;
                     const columns = headers.map(h => `"${h}" TEXT`).join(', ');
                     await client.query(`CREATE TABLE "${tableName}" (${columns})`);
-
-                    if (rows.length > 0) {
-                        const chunkSize = 100;
-                        for (let i = 0; i < rows.length; i += chunkSize) {
-                            const chunk = rows.slice(i, i + chunkSize);
-                            
-                            const placeholders = [];
-                            const values = [];
-                            const colNames = headers.map(h => `"${h}"`).join(', ');
-                            
-                            chunk.forEach((row, rowIndex) => {
-                                const rowPlaceholders = [];
-                                headers.forEach((h, colIndex) => {
-                                    rowPlaceholders.push(`$${rowIndex * headers.length + colIndex + 1}`);
-                                    values.push(row[h] ?? null);
-                                });
-                                placeholders.push(`(${rowPlaceholders.join(', ')})`);
-                            });
-                            
-                            await client.query(
-                                `INSERT INTO "${tableName}" (${colNames}) VALUES ${placeholders.join(', ')}`,
-                                values
-                            );
-                        }
-                    }
-
-                    await client.query('COMMIT');
-                    console.log(`Table ${tableName} created with ${rows.length} rows`);
-                    resolve();
-                } catch (error) {
-                    await client.query('ROLLBACK');
-                    reject(error);
-                } finally {
-                    client.release();
+                    headersCreated = true;
+                    stream.resume();
+                } catch (err) {
+                    stream.destroy(err);
                 }
-            })
-            .on('error', reject);
+            });
+
+            stream.on('data', async (row) => {
+                chunk.push(row);
+                if (chunk.length >= 1000) {
+                    stream.pause();
+                    const currentChunk = [...chunk];
+                    chunk = [];
+                    try {
+                        await insertChunk(client, tableName, headers, currentChunk);
+                        stream.resume();
+                    } catch (err) {
+                        stream.destroy(err);
+                    }
+                }
+            });
+
+            stream.on('end', async () => {
+                try {
+                    if (chunk.length > 0) {
+                        await insertChunk(client, tableName, headers, chunk);
+                    }
+                    resolve();
+                } catch (err) {
+                    reject(err);
+                }
+            });
+
+            stream.on('error', reject);
+        });
+        
+        await client.query('COMMIT');
+        console.log(`Table ${tableName} created from stream`);
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+        // Delete the temp file to save disk space
+        fs.unlink(filePath, () => {});
+    }
+}
+
+async function insertChunk(client, tableName, headers, chunk) {
+    const placeholders = [];
+    const values = [];
+    const colNames = headers.map(h => `"${h}"`).join(', ');
+    
+    chunk.forEach((row, rowIndex) => {
+        const rowPlaceholders = [];
+        headers.forEach((h, colIndex) => {
+            rowPlaceholders.push(`$${rowIndex * headers.length + colIndex + 1}`);
+            values.push(row[h] ?? null);
+        });
+        placeholders.push(`(${rowPlaceholders.join(', ')})`);
     });
+    
+    await client.query(
+        `INSERT INTO "${tableName}" (${colNames}) VALUES ${placeholders.join(', ')}`,
+        values
+    );
 }
 
 // Gets schema information to feed into the AI prompt
