@@ -64,7 +64,8 @@ function App() {
       setResult(await response.json());
     } catch (error) {
       console.error('Error fetching query:', error);
-      setResult({ error: error.message || "Failed to connect to the backend server." });
+      const urlAttempted = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/query`;
+      setResult({ error: `Failed to fetch from ${urlAttempted}. Error: ${error.message}` });
     } finally {
       setLoading(false);
     }
