@@ -21,7 +21,8 @@ function App() {
     formData.append('file', selectedFile);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/upload`, {
+      const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/+$/, '');
+      const response = await fetch(`${baseUrl}/api/upload`, {
         method: 'POST',
         body: formData
       });
@@ -51,7 +52,8 @@ function App() {
     setResult(null);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/query`, {
+      const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/+$/, '');
+      const response = await fetch(`${baseUrl}/api/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: question })
@@ -64,7 +66,8 @@ function App() {
       setResult(await response.json());
     } catch (error) {
       console.error('Error fetching query:', error);
-      const urlAttempted = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/query`;
+      const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/+$/, '');
+      const urlAttempted = `${baseUrl}/api/query`;
       setResult({ error: `Failed to fetch from ${urlAttempted}. Error: ${error.message}` });
     } finally {
       setLoading(false);
