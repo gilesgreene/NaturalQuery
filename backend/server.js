@@ -1,38 +1,32 @@
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import csv from 'csv-parser';
-import fs from 'fs';
 import { generateSQL } from './ai.js';
 import { runQuery, getSchemaInfo, initDb, createTableFromCSV } from './database.js';
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
 
-// Configure multer for file uploads
-const upload = multer({ dest: 'uploads/' });
+// Configure multer for memory storage
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
 app.use(cors({
-  origin: 'https://natural-query-beige.vercel.app'
+  origin: ['https://natural-query-beige.vercel.app', 'http://localhost:5173']
 }));
 app.use(express.json());
-
-// Ensure uploads directory exists
-if (!fs.existsSync('uploads')) {
-    fs.mkdirSync('uploads');
-}
 
 // Initialize the database on startup
 initDb().then(() => console.log("Database ready")).catch(console.error);
 
-app.post('/upload', upload.single('file'), async (req, res) => {
+app.post('/api/upload', upload.single('file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
 
     try {
         const tableName = 'uploaded_data';
-        await createTableFromCSV(req.file.path, tableName);
+        await createTableFromCSV(req.file.buffer, tableName);
         res.json({ success: true, message: 'File uploaded and processed successfully' });
     } catch (error) {
         console.error('Error processing file:', error);
@@ -40,7 +34,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     }
 });
 
-app.post('/query', async (req, res) => {
+app.post('/api/query', async (req, res) => {
     const { query } = req.body;
 
     if (!query) {
