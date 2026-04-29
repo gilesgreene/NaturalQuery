@@ -69,7 +69,9 @@ export async function createTableFromCSV(filePath, tableName) {
         let headers = [];
         let chunk = [];
         
-        const stream = fs.createReadStream(filePath).pipe(csv());
+        const stream = fs.createReadStream(filePath).pipe(csv({
+            mapHeaders: ({ header }) => header.toLowerCase().trim().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+        }));
         
         for await (const row of stream) {
             if (!headersCreated) {
