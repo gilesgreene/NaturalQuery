@@ -73,98 +73,81 @@ function smartFallbackSQL(userQuery, schemaInfo) {
     }
  
     const columns = parseColumns(schemaInfo, table);
- 
+    
+    // Sort columns by length descending so we match longer names first ("Total Revenue" before "Revenue")
+    const sortedColumns = [...columns].sort((a, b) => b.length - a.length);
+
+    // Find any column explicitly mentioned in the query
+    const mentioned = sortedColumns.filter(c => q.includes(c.toLowerCase()) || q.includes(c.toLowerCase().replace(/_/g, ' ')));
+
+    // Try to guess numeric vs category columns
+    const possibleNumeric = columns.filter(c => c.toLowerCase().match(/price|cost|amount|salary|total|count|qty|quantity|number|num|age|population|value|score|rate|percent|fee|tax|margin/));
+    const targetNumeric = mentioned.find(c => possibleNumeric.includes(c)) || possibleNumeric[0] || columns[columns.length - 1];
+
+    const possibleCategory = columns.filter(c => c.toLowerCase().match(/name|category|type|status|city|country|state|region|group|class|department|brand|make|model|color/));
+    const targetCategory = mentioned.find(c => possibleCategory.includes(c)) || possibleCategory[0] || columns[0];
+
     // COUNT
     if (q.includes('count') || q.includes('how many') || q.includes('total number')) {
-        return `SELECT COUNT(*) as count FROM ${table};`;
+        if (targetCategory && q.includes('by')) {
+            return `SELECT "${targetCategory}", COUNT(*) as count FROM "${table}" GROUP BY "${targetCategory}" ORDER BY count DESC LIMIT 50;`;
+        }
+        return `SELECT COUNT(*) as count FROM "${table}";`;
     }
  
     // AVERAGE
     if (q.match(/average|avg/)) {
-        const numCol = columns.find(c => ['price', 'amount', 'salary', 'age', 'cost', 'revenue', 'stock_quantity'].includes(c.toLowerCase()));
-        if (numCol) return `SELECT AVG(${numCol}) as average_${numCol} FROM ${table};`;
+        if (targetNumeric) {
+            if (targetCategory && q.includes('by')) {
+                return `SELECT "${targetCategory}", AVG(CAST("${targetNumeric}" AS NUMERIC)) as average FROM "${table}" GROUP BY "${targetCategory}" ORDER BY average DESC LIMIT 50;`;
+            }
+            return `SELECT AVG(CAST("${targetNumeric}" AS NUMERIC)) as average FROM "${table}";`;
+        }
     }
  
     // SUM
     if (q.includes('total') || q.includes('sum')) {
-        const numCol = columns.find(c => ['price', 'amount', 'salary', 'cost', 'revenue'].includes(c.toLowerCase()));
-        if (numCol) return `SELECT SUM(${numCol}) as total_${numCol} FROM ${table};`;
-    }
- 
-    // MAX
-    if (q.includes('most expensive') || q.includes('highest') || q.includes('maximum') || q.includes('max')) {
-        const numCol = columns.find(c => ['price', 'amount', 'salary', 'cost'].includes(c.toLowerCase()));
-        if (numCol) return `SELECT * FROM ${table} ORDER BY ${numCol} DESC LIMIT 1;`;
-    }
- 
-    // MIN
-    if (q.includes('cheapest') || q.includes('lowest') || q.includes('minimum') || q.includes('min')) {
-        const numCol = columns.find(c => ['price', 'amount', 'salary', 'cost'].includes(c.toLowerCase()));
-        if (numCol) return `SELECT * FROM ${table} ORDER BY ${numCol} ASC LIMIT 1;`;
-    }
- 
-    // TOP N
-    const topMatch = q.match(/top\s+(\d+)/);
-    if (topMatch) {
-        const n = topMatch[1];
-        const numCol = columns.find(c => ['price', 'amount', 'salary', 'cost', 'stock_quantity'].includes(c.toLowerCase()));
-        if (numCol) return `SELECT * FROM ${table} ORDER BY ${numCol} DESC LIMIT ${n};`;
-        return `SELECT * FROM ${table} LIMIT ${n};`;
-    }
- 
-    // LIMIT N rows
-    const limitMatch = q.match(/(\d+)\s*(items?|rows?|records?|results?)/);
-    if (limitMatch) {
-        return `SELECT * FROM ${table} LIMIT ${limitMatch[1]};`;
-    }
- 
-    // ORDER BY price
-    if (q.includes('expensive') || q.includes('price') || q.includes('cost')) {
-        const priceCol = columns.find(c => ['price', 'cost', 'amount'].includes(c.toLowerCase()));
-        if (priceCol) {
-            const dir = (q.includes('cheap') || q.includes('low') || q.includes('asc')) ? 'ASC' : 'DESC';
-            return `SELECT * FROM ${table} ORDER BY ${priceCol} ${dir};`;
+        if (targetNumeric) {
+            if (targetCategory && q.includes('by')) {
+                return `SELECT "${targetCategory}", SUM(CAST("${targetNumeric}" AS NUMERIC)) as total FROM "${table}" GROUP BY "${targetCategory}" ORDER BY total DESC LIMIT 50;`;
+            }
+            return `SELECT SUM(CAST("${targetNumeric}" AS NUMERIC)) as total FROM "${table}";`;
         }
     }
  
-    // ORDER BY date
-    if (q.includes('recent') || q.includes('latest') || q.includes('newest') || q.includes('date')) {
-        const dateCol = columns.find(c => ['date', 'sale_date', 'created_at', 'updated_at', 'timestamp'].includes(c.toLowerCase()));
-        if (dateCol) return `SELECT * FROM ${table} ORDER BY ${dateCol} DESC;`;
-    }
- 
-    // GROUP BY category
-    if (q.includes('category') || q.includes('group') || q.includes('by type')) {
-        const catCol = columns.find(c => ['category', 'type', 'group', 'department', 'region'].includes(c.toLowerCase()));
-        if (catCol) {
-            const numCol = columns.find(c => ['price', 'amount', 'salary'].includes(c.toLowerCase()));
-            if (numCol) return `SELECT ${catCol}, COUNT(*) as count, AVG(${numCol}) as avg_${numCol} FROM ${table} GROUP BY ${catCol};`;
-            return `SELECT ${catCol}, COUNT(*) as count FROM ${table} GROUP BY ${catCol};`;
+    // MAX / TOP N
+    if (q.includes('most') || q.includes('highest') || q.includes('maximum') || q.includes('max') || q.includes('top')) {
+        const nMatch = q.match(/top\s+(\d+)/);
+        const limit = nMatch ? nMatch[1] : 10;
+        if (targetNumeric) {
+            return `SELECT * FROM "${table}" ORDER BY CAST("${targetNumeric}" AS NUMERIC) DESC NULLS LAST LIMIT ${limit};`;
         }
     }
  
-    // DISTINCT
-    if (q.includes('distinct') || q.includes('unique') || q.includes('different')) {
-        const catCol = columns.find(c => ['category', 'type', 'region', 'department', 'status'].includes(c.toLowerCase()));
-        if (catCol) return `SELECT DISTINCT ${catCol} FROM ${table};`;
+    // MIN / BOTTOM N
+    if (q.includes('cheapest') || q.includes('least') || q.includes('lowest') || q.includes('minimum') || q.includes('min') || q.includes('bottom')) {
+        const nMatch = q.match(/bottom\s+(\d+)/);
+        const limit = nMatch ? nMatch[1] : 10;
+        if (targetNumeric) {
+            return `SELECT * FROM "${table}" ORDER BY CAST("${targetNumeric}" AS NUMERIC) ASC NULLS LAST LIMIT ${limit};`;
+        }
     }
  
-    // WHERE with quoted value
+    // GROUP BY / BY TYPE
+    if (q.includes('by ') || q.includes('group')) {
+        if (targetCategory) {
+            return `SELECT "${targetCategory}", COUNT(*) as count FROM "${table}" GROUP BY "${targetCategory}" ORDER BY count DESC LIMIT 50;`;
+        }
+    }
+    
+    // EXACT MATCH WHERE CLAUSE
     const quotedMatch = userQuery.match(/"([^"]+)"|'([^']+)'/);
-    if (quotedMatch) {
+    if (quotedMatch && targetCategory) {
         const val = quotedMatch[1] || quotedMatch[2];
-        const textCol = columns.find(c => ['name', 'category', 'type', 'status', 'region', 'department'].includes(c.toLowerCase()));
-        if (textCol) return `SELECT * FROM ${table} WHERE ${textCol} = '${val}';`;
+        return `SELECT * FROM "${table}" WHERE "${targetCategory}" = '${val}' LIMIT 50;`;
     }
- 
-    // name + price together
-    if (q.includes('name') && q.includes('price')) {
-        const nameCol = columns.find(c => c.toLowerCase() === 'name');
-        const priceCol = columns.find(c => ['price', 'cost', 'amount'].includes(c.toLowerCase()));
-        if (nameCol && priceCol) return `SELECT ${nameCol}, ${priceCol} FROM ${table} ORDER BY ${priceCol} DESC;`;
-    }
- 
-    // Default
-    return `SELECT * FROM ${table} LIMIT 100;`;
+
+    // Default Fallback
+    return `SELECT * FROM "${table}" LIMIT 100;`;
 }
  
