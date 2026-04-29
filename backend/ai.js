@@ -1,50 +1,44 @@
-export async function generateSQL(userQuery, schemaInfo) {
-    try {
-        const modelId = "mrm8488/t5-base-finetuned-wikiSQL";
-        const apiUrl = `https://api-inference.huggingface.co/models/${modelId}`;
- 
-        let formattedSchema;
-        if (schemaInfo.includes('uploaded_data')) {
-            const match = schemaInfo.match(/Table: uploaded_data, Columns: (.+)/);
-            if (match) {
-                const columns = match[1].split(', ').join(' , ');
-                formattedSchema = `uploaded_data : ${columns}`;
-            } else {
-                formattedSchema = 'uploaded_data : name , age , city , salary';
-            }
-        } else {
-            formattedSchema = 'products : id , name , category , price , stock_quantity | sales : id , product_id , sale_date , amount';
-        }
- 
-        const input = `${userQuery} | ${formattedSchema}`;
- 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000);
+import { GoogleGenAI } from '@google/genai';
 
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ inputs: input, options: { wait_for_model: true } }),
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
- 
-        if (!response.ok) throw new Error(`HuggingFace API error: ${response.status}`);
- 
-        const result = await response.json();
- 
-        if (result && result[0] && result[0].generated_text) {
-            const sql = result[0].generated_text.trim();
-            // Only use model output if it's specific (not just SELECT *)
-            if (sql && !sql.toLowerCase().match(/^select \* from \w+;?$/)) {
-                return sql;
+export async function generateSQL(userQuery, schemaInfo) {
+    if (!process.env.GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY is not set. Please add it to your Render Environment Variables.');
+    }
+
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        
+        const systemPrompt = `You are an expert PostgreSQL data analyst.
+Your task is to write a strictly valid PostgreSQL query to answer the user's question based on the provided database schema.
+Return ONLY the raw SQL string. Do NOT wrap it in markdown formatting or backticks (e.g. no \`\`\`sql). 
+Do NOT include any explanations or conversational text.
+If the query requires string matching, use ILIKE for case-insensitive matches.
+If you are unsure or the query cannot be answered, generate a query that returns all records (SELECT * FROM table LIMIT 100).
+Remember to wrap table and column names in double quotes if they contain spaces or uppercase letters.
+
+Database Schema:
+${schemaInfo}`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: userQuery,
+            config: {
+                systemInstruction: systemPrompt,
+                temperature: 0.1, // Low temperature for deterministic SQL
             }
+        });
+
+        if (response.text) {
+            let sql = response.text.trim();
+            // Clean up any rogue markdown if the model disobeys
+            sql = sql.replace(/^```sql/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+            return sql;
         }
- 
-        throw new Error('Model returned generic result');
- 
+
+        throw new Error('Model returned empty response');
     } catch (error) {
-        console.error('HuggingFace fallback:', error.message);
+        console.error('Gemini API Error:', error.message);
+        // Fallback to our smart deterministic engine if the API fails
         return smartFallbackSQL(userQuery, schemaInfo);
     }
 }
