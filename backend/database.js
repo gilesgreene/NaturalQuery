@@ -69,49 +69,27 @@ export async function createTableFromCSV(filePath, tableName) {
         let headers = [];
         let chunk = [];
         
-        await new Promise((resolve, reject) => {
-            const stream = fs.createReadStream(filePath).pipe(csv());
+        const stream = fs.createReadStream(filePath).pipe(csv());
+        
+        for await (const row of stream) {
+            if (!headersCreated) {
+                headers = Object.keys(row);
+                const columns = headers.map(h => `"${h}" TEXT`).join(', ');
+                await client.query(`CREATE TABLE "${tableName}" (${columns})`);
+                headersCreated = true;
+            }
             
-            stream.on('headers', async (headerList) => {
-                try {
-                    headers = headerList;
-                    const columns = headers.map(h => `"${h}" TEXT`).join(', ');
-                    await client.query(`CREATE TABLE "${tableName}" (${columns})`);
-                    headersCreated = true;
-                    stream.resume();
-                } catch (err) {
-                    stream.destroy(err);
-                }
-            });
-
-            stream.on('data', async (row) => {
-                chunk.push(row);
-                if (chunk.length >= 1000) {
-                    stream.pause();
-                    const currentChunk = [...chunk];
-                    chunk = [];
-                    try {
-                        await insertChunk(client, tableName, headers, currentChunk);
-                        stream.resume();
-                    } catch (err) {
-                        stream.destroy(err);
-                    }
-                }
-            });
-
-            stream.on('end', async () => {
-                try {
-                    if (chunk.length > 0) {
-                        await insertChunk(client, tableName, headers, chunk);
-                    }
-                    resolve();
-                } catch (err) {
-                    reject(err);
-                }
-            });
-
-            stream.on('error', reject);
-        });
+            chunk.push(row);
+            
+            if (chunk.length >= 1000) {
+                await insertChunk(client, tableName, headers, chunk);
+                chunk = [];
+            }
+        }
+        
+        if (chunk.length > 0) {
+            await insertChunk(client, tableName, headers, chunk);
+        }
         
         await client.query('COMMIT');
         console.log(`Table ${tableName} created from stream`);
