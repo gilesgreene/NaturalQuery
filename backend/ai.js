@@ -1,7 +1,4 @@
 export async function generateSQL(userQuery, schemaInfo) {
-    console.log('HF response status:', response.status);
-    const raw = await response.text();
-    console.log('HF raw response:', raw);
     try {
         const modelId = "mrm8488/t5-base-finetuned-wikiSQL";
         const apiUrl = `https://api-inference.huggingface.co/models/${modelId}`;
