@@ -26,11 +26,14 @@ function App() {
         body: formData
       });
 
-      if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error || `Upload failed: ${response.status}`);
+      }
       await response.json();
     } catch (error) {
       console.error('Upload error:', error);
-      alert('Failed to upload file. Please try again.');
+      alert(error.message || 'Failed to upload file. Please try again.');
     } finally {
       setUploading(false);
     }
@@ -54,11 +57,14 @@ function App() {
         body: JSON.stringify({ query: question })
       });
 
-      if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error || `Server error: ${response.status}`);
+      }
       setResult(await response.json());
     } catch (error) {
       console.error('Error fetching query:', error);
-      setResult({ error: "Failed to connect to the backend server. Make sure it's running on port 3001." });
+      setResult({ error: error.message || "Failed to connect to the backend server." });
     } finally {
       setLoading(false);
     }
