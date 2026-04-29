@@ -19,7 +19,7 @@ export async function generateSQL(userQuery, schemaInfo) {
         const input = `${userQuery} | ${formattedSchema}`;
  
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
 
         const response = await fetch(apiUrl, {
             method: 'POST',
@@ -64,12 +64,12 @@ function smartFallbackSQL(userQuery, schemaInfo) {
     const hasProducts = schemaInfo.includes('products');
  
     let table;
-    if (hasUploadedData && (q.includes('upload') || q.includes('csv') || !hasProducts)) {
+    if (hasUploadedData) {
         table = 'uploaded_data';
     } else if (hasSales && (q.includes('sale') || q.includes('revenue') || q.includes('sold') || q.includes('transaction'))) {
         table = 'sales';
     } else {
-        table = hasProducts ? 'products' : (hasUploadedData ? 'uploaded_data' : 'products');
+        table = hasProducts ? 'products' : 'sales';
     }
  
     const columns = parseColumns(schemaInfo, table);
