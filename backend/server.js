@@ -11,9 +11,7 @@ const port = process.env.PORT || 3001;
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-app.use(cors({
-  origin: ['https://natural-query-beige.vercel.app', 'http://localhost:5173']
-}));
+app.use(cors());
 app.use(express.json());
 
 // Initialize the database on startup
