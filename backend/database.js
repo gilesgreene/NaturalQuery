@@ -82,13 +82,25 @@ export async function createTableFromCSV(buffer, tableName) {
                     await client.query(`CREATE TABLE "${tableName}" (${columns})`);
 
                     if (rows.length > 0) {
-                        for (const row of rows) {
-                            const placeholders = headers.map((_, i) => `$${i + 1}`).join(', ');
+                        const chunkSize = 100;
+                        for (let i = 0; i < rows.length; i += chunkSize) {
+                            const chunk = rows.slice(i, i + chunkSize);
+                            
+                            const placeholders = [];
+                            const values = [];
                             const colNames = headers.map(h => `"${h}"`).join(', ');
-                            const values = headers.map(h => row[h] ?? null);
+                            
+                            chunk.forEach((row, rowIndex) => {
+                                const rowPlaceholders = [];
+                                headers.forEach((h, colIndex) => {
+                                    rowPlaceholders.push(`$${rowIndex * headers.length + colIndex + 1}`);
+                                    values.push(row[h] ?? null);
+                                });
+                                placeholders.push(`(${rowPlaceholders.join(', ')})`);
+                            });
                             
                             await client.query(
-                                `INSERT INTO "${tableName}" (${colNames}) VALUES (${placeholders})`,
+                                `INSERT INTO "${tableName}" (${colNames}) VALUES ${placeholders.join(', ')}`,
                                 values
                             );
                         }

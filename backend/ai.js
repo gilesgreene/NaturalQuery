@@ -18,11 +18,16 @@ export async function generateSQL(userQuery, schemaInfo) {
  
         const input = `${userQuery} | ${formattedSchema}`;
  
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ inputs: input, options: { wait_for_model: true } })
+            body: JSON.stringify({ inputs: input, options: { wait_for_model: true } }),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
  
         if (!response.ok) throw new Error(`HuggingFace API error: ${response.status}`);
  
