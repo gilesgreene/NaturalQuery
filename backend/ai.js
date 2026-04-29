@@ -13,8 +13,8 @@ Your task is to write a strictly valid PostgreSQL query to answer the user's que
 Return ONLY the raw SQL string. Do NOT wrap it in markdown formatting or backticks (e.g. no \`\`\`sql). 
 Do NOT include any explanations or conversational text.
 If the query requires string matching, use ILIKE for case-insensitive matches.
-If you are unsure or the query cannot be answered, generate a query that returns all records (SELECT * FROM table LIMIT 100).
-Remember to wrap table and column names in double quotes if they contain spaces or uppercase letters.
+If you are unsure or the query cannot be answered, generate a query that returns all records (SELECT * FROM "uploaded_data" LIMIT 100).
+CRITICAL: You MUST wrap ALL table names and column names in double quotes (e.g. SELECT "Column Name" FROM "table_name"). The database is strictly case-sensitive, so if you do not use double quotes, the query will fail!
 
 Database Schema:
 ${schemaInfo}`;
